@@ -20,3 +20,7 @@ print(stock_individual_info_em_df)
 stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol="600036", period="daily", start_date="20170101", end_date='20241122', adjust="qfq")
 print(stock_zh_a_hist_df)
 
+# 股票代码获取
+stocks = ak.stock_info_sh_name_code()
+print(stocks.head())
+
