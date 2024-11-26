@@ -4,68 +4,7 @@ import akshare as ak
 import backtrader as bt
 
 from utils import preprocess
-
-
-class MyStrategy(bt.Strategy):
-    """
-    主策略程序
-    """
-    params = (
-        ('printlog', False),
-    )
-
-    def __init__(self):
-        """
-        初始化函数
-        """
-        # 记录最后一笔持仓的买入价格
-        self.last_buy_price = None
-
-    def next(self):
-        # 开仓条件和买入条件
-        open_condition = not self.position and self.data.low[0] <= self.data.open[0]*0.98
-        buy_condition = self.data.low[0] <= self.data.close[0] <= self.position.price * 0.95 and self.broker.cash >= self.data.close[0]*100
-        if open_condition or buy_condition:
-            # 尾盘买入：在当天收盘价买入一手
-            self.buy(size=100)
-        else:
-            # 检查是否达到预期涨幅或止损点
-            stop_profit_condition = self.data.high[0] >= self.position.price * 1.05
-            stop_loss_condition = self.data.close[0] < self.position.price * 0.8
-            if stop_profit_condition or stop_loss_condition:
-                self.sell(size=self.position.size)
-
-    def notify_order(self, order):
-        if order.status in [order.Submitted, order.Accepted]:
-            # 订单提交/接受状态，无需处理
-            return
-
-        if order.status in [order.Completed]:
-            if order.isbuy():
-                self.log(
-                    f'买单执行 @ {order.executed.price:.2f}, 当前成本 {self.position.price:.2f}'
-                )
-                self.last_buy_price = order.executed.price
-            elif order.issell():
-                self.log(
-                    f'卖单执行 @ {order.executed.price:.2f}'
-                )
-        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
-            self.log('订单取消/保证金不足/被拒绝')
-
-    def notify_trade(self, trade):
-        if not trade.isclosed:
-            return
-        self.log(f'盈利 {trade.pnl:.2f}, 现金 {self.broker.cash:.2f}')
-
-    # def notify_cashvalue(self, cash, value):
-    #     print(f"Notification - Cash: {cash:.2f}, Portfolio Value: {value:.2f}")
-
-    def log(self, txt, dt=None):
-        ''' 日志记录函数 '''
-        if self.params.printlog:
-            dt = dt or self.datas[0].datetime.date(0)
-            print(f'{dt.isoformat()} {txt}')
+from strategy import TailBuy
 
 
 if __name__ == '__main__':
@@ -73,7 +12,7 @@ if __name__ == '__main__':
     ranks = dict()
     for symbol in stocks['证券代码'][:3000]:
         cerebro = bt.Cerebro()  # 初始化回测系统
-        cerebro.addstrategy(MyStrategy, printlog=True)  # 将交易策略加载到回测系统中
+        cerebro.addstrategy(TailBuy, printlog=True)  # 将交易策略加载到回测系统中
         # 添加分析器
         cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
@@ -112,7 +51,15 @@ if __name__ == '__main__':
         print(f"夏普比率: {sharpe['sharperatio']:.4f}" if sharpe['sharperatio'] is not None else "夏普比率: 无法计算 (None)")
         print(f"最大回撤: {drawdown.max.drawdown:.2f}%")
         print(f"总交易数: {trade_stats.total.total}")
-        print(f"胜率: {trade_stats.won.total / trade_stats.total.total * 100:.2f}%")
+        # 获取赢利交易总数，若不存在则为0
+        won_total = trade_stats.get('won', {}).get('total', 0)
+        # 获取总交易数，若不存在则为0
+        total_total = trade_stats.get('total', {}).get('total', 0)
+        if total_total > 0:
+            win_rate = (won_total / total_total) * 100
+            print(f"胜率: {win_rate:.2f}%")
+        else:
+            print("胜率: 无法计算 (None)")
         print(f"年化收益率: {returns['rnorm100']:.2f}%")
         
         ranks[symbol] = returns['rnorm100']
