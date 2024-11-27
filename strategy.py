@@ -15,17 +15,18 @@ class TailBuy(bt.Strategy):
 
     def next(self):
         # 开仓条件和买入条件
-        open_condition = not self.position and self.data.low[0] <= self.data.open[0]*0.98
-        buy_condition = self.data.low[0] <= self.data.close[0] <= self.position.price * 0.95 and self.broker.cash >= self.data.close[0]*100
+        open_condition = not self.position and self.data.low[0] <= self.data.open[0]*0.97
+        buy_condition = self.data.low[0] <= self.data.close[0] <= self.position.price * 0.95 and self.broker.cash >= self.data.close[0] * 100
         if open_condition or buy_condition:
             # 尾盘买入：在当天收盘价买入一手
             self.buy(size=100)
         else:
-            # 检查是否达到预期涨幅或止损点
-            stop_profit_condition = self.data.high[0] >= self.position.price * 1.05
-            stop_loss_condition = self.data.close[0] < self.position.price * 0.8
-            if stop_profit_condition or stop_loss_condition:
-                self.sell(size=self.position.size)
+            if self.position:
+                # 检查是否达到预期涨幅或止损点
+                stop_profit_condition = self.data.high[0] >= self.position.price * 1.05
+                stop_loss_condition = self.data.close[0] < self.position.price * 0.8
+                if stop_profit_condition or stop_loss_condition:
+                    self.sell(size=self.position.size)
 
     def notify_order(self, order):
         if order.status in [order.Submitted, order.Accepted]:

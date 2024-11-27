@@ -9,6 +9,8 @@ from strategy import TailBuy
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--symbol', default="600036", type=str, help='stock code')
+    parser.add_argument('--start_date', default="20240101", help='start date of back test')
+    parser.add_argument('--end_date', default='today', type=str, help='choose end date of back test')
     args = parser.parse_args()
     
     cerebro = bt.Cerebro()  # 初始化回测系统
@@ -23,8 +25,12 @@ if __name__ == '__main__':
     cerebro.broker.setcash(start_cash)  # 设置初始资本为 100000
     cerebro.broker.setcommission(commission=0.002)  # 设置交易手续费为 0.2%
 
-    start_date = datetime(2024, 1, 1)  
-    end_date = datetime.today()
+    date_format = "%Y%m%d"
+    start_date = datetime.strptime(args.start_date, date_format)
+    if args.end_date == "today": 
+        end_date = datetime.today()
+    else:
+        end_date = datetime.strptime(args.start_date, date_format)
     stock_df = preprocess(symbol=args.symbol, adjust="qfq", start_date=start_date.strftime("%Y%m%d"), end_date=end_date.strftime("%Y%m%d"))
     if stock_df is None:
         exit()
