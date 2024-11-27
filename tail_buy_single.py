@@ -30,7 +30,7 @@ if __name__ == '__main__':
     if args.end_date == "today": 
         end_date = datetime.today()
     else:
-        end_date = datetime.strptime(args.start_date, date_format)
+        end_date = datetime.strptime(args.end_date, date_format)
     stock_df = preprocess(symbol=args.symbol, adjust="qfq", start_date=start_date.strftime("%Y%m%d"), end_date=end_date.strftime("%Y%m%d"))
     if stock_df is None:
         exit()
@@ -56,5 +56,13 @@ if __name__ == '__main__':
     print(f"夏普比率: {sharpe['sharperatio']:.4f}" if sharpe['sharperatio'] is not None else "夏普比率: 无法计算 (None)")
     print(f"最大回撤: {drawdown.max.drawdown:.2f}%")
     print(f"总交易数: {trade_stats.total.total}")
-    print(f"胜率: {trade_stats.won.total / trade_stats.total.total * 100:.2f}% " if trade_stats.won.total else "胜率: 无法计算 (None)")
+    # 获取赢利交易总数，若不存在则为0
+    won_total = trade_stats.get('won', {}).get('total', 0)
+    # 获取总交易数，若不存在则为0
+    total_total = trade_stats.get('total', {}).get('total', 0)
+    if total_total > 0:
+        win_rate = (won_total / total_total) * 100
+        print(f"胜率: {win_rate:.2f}%")
+    else:
+        print("胜率: 无法计算 (None)")
     print(f"年化收益率: {returns['rnorm100']:.2f}%")        

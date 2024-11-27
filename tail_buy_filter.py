@@ -35,7 +35,7 @@ if __name__ == '__main__':
         if args.end_date == "today": 
             end_date = datetime.today()
         else:
-            end_date = datetime.strptime(args.start_date, date_format)
+            end_date = datetime.strptime(args.end_date, date_format)
         stock_df = preprocess(symbol=symbol, adjust="qfq", start_date=start_date.strftime("%Y%m%d"), end_date=end_date.strftime("%Y%m%d"))
         if stock_df is None:
             continue
