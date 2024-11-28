@@ -1,73 +1,95 @@
 import argparse
+from collections import deque
 from datetime import datetime, timedelta
 
 import backtrader as bt
-from backtrader import Order
 
 from utils import preprocess
 
 
 class LimitBuy(bt.Strategy):
     """
-    主策略程序
+    优化后的主策略程序
     """
-
-    params = (("printlog", False), ("rebound_ratio", 0.005), ("stop_profit_ratio", 0.05))
+    
+    params = (
+        ("printlog", False),
+        ("open_ratio", 0.03),
+        ("grid_ratio", 0.05),
+        ("stop_profit_ratio", 0.05),
+        ("order_size", 100),  # 新增参数：订单大小
+        ("valid_days", 1),  # 订单有效天数
+    )
 
     def __init__(self):
         """
         初始化函数
         """
-        self.last_buy_price = []
-        self.last_position_price = []
-        
+        self.last_buy_price = deque(maxlen=10)  # 限制最大长度，防止内存增长
+        self.last_position_price = deque(maxlen=10)
+        self.order = None  # 当前订单
+        self.stop_order = None  # 当前止损订单
+
     def next(self):
-        # 开仓条件和买入条件
-        open_condition = (
-            not self.position and self.data.low[0] <= self.data.open[0] * 0.97
-        )
-        buy_condition = (self.broker.cash >= self.data.low[0] * (1 + self.params.rebound_ratio) * 100
-            and self.last_buy_price[-1] * 0.97 >= 
-            self.data.low[0] * (1 + self.params.rebound_ratio)
-        ) if self.last_buy_price else None
-        if open_condition:
-            # 尾盘买入：在当天收盘价买入一手
-            self.buy(size=100)
-            return
-        if buy_condition:
-            # 尾盘买入：在当天收盘价买入一手
-            self.buy(
-                exectype=Order.Limit,
-                price=self.data.low[0] * (1 + self.params.rebound_ratio),
-                size=100,
-                valid = self.data.datetime.date(0) + timedelta(days=1)
-            )
-            return
-        if self.position.size >= 100:
-            # 检查是否达到预期涨幅或止损点
-            stop_grid_profit_condition = self.data.high[0] >= self.last_buy_price[-1] * (
-                1 + self.params.stop_profit_ratio
-            ) if self.last_buy_price else None
-            stop_profit_condition = self.data.high[0] >= self.position.price * (
-                1 + self.params.stop_profit_ratio
-            )
-            # stop_loss_condition = self.data.close[0] < self.position.price * 0.7
-            if stop_grid_profit_condition:
-                self.sell(
-                    exectype=Order.Limit,
-                    price=self.last_buy_price[-1] * (1 + self.params.stop_profit_ratio),
-                    size=100,
-                    valid = self.data.datetime.date(0) + timedelta(days=1)
+        # 检查是否有挂单
+        if self.order:
+            return  # 订单尚未完成
+        
+        # 开仓条件：无持仓且当日最低价跌破开盘价95%
+        if self.position.size == 0:
+            open_price = self.data.open[0] * (1 - self.params.open_ratio)
+            if self.data.low[0] <= open_price:
+                self.log(f"尝试以限价 {open_price:.2f} 买入 {self.params.order_size} 股")
+                self.order = self.buy(
+                    exectype=bt.Order.Limit,
+                    price=open_price,
+                    size=self.params.order_size,
+                    valid=self.data.datetime.datetime(0) + timedelta(days=self.params.valid_days)
                 )
                 return
-            if stop_profit_condition:
-                self.sell(
-                    exectype=Order.Limit,
-                    price=self.position.price * (1 + self.params.stop_profit_ratio),
+
+        # 持仓情况下的策略
+        if self.position.size > 0:
+            high_price = self.data.high[0]
+            low_price = self.data.low[0]
+            entry_price = self.position.price
+
+            # 止盈条件
+            target_profit_price = entry_price * (1 + self.params.stop_profit_ratio)
+            if high_price >= target_profit_price:
+                self.log(f"达到止盈条件，最高价格 {high_price:.2f} >= 止盈价 {target_profit_price:.2f}")
+                self.order = self.sell(
+                    exectype=bt.Order.Limit,
+                    price=target_profit_price,
                     size=self.position.size,
-                    valid = self.data.datetime.date(0) + timedelta(days=1)
+                    valid=self.data.datetime.datetime(0) + timedelta(days=self.params.valid_days)
                 )
                 return
+
+            # 网格止盈条件
+            if self.last_buy_price and high_price >= self.last_buy_price[-1] * (1 + self.params.grid_ratio):
+                sell_price = self.last_buy_price[-1] * (1 + self.params.grid_ratio)
+                self.log(f"触发网格减仓，尝试以限价 {sell_price:.2f} 卖出 {self.params.order_size} 股")
+                self.order = self.sell(
+                    exectype=bt.Order.Limit,
+                    price=sell_price,
+                    size=self.params.order_size,
+                    valid=self.data.datetime.datetime(0) + timedelta(days=self.params.valid_days)
+                )
+                return
+                
+            # 网格加仓条件
+            target_add_price = self.last_buy_price[-1] * (1 - self.params.grid_ratio)
+            if self.last_buy_price and low_price <= self.last_buy_price[-1] * (1 - self.params.grid_ratio):
+                if self.broker.cash >= target_add_price * self.params.order_size:
+                    self.log(f"触发网格加仓，尝试以限价 {target_add_price:.2f} 买入 {self.params.order_size} 股")
+                    self.order = self.buy(
+                        exectype=bt.Order.Limit,
+                        price=target_add_price,
+                        size=self.params.order_size,
+                        valid=self.data.datetime.datetime(0) + timedelta(days=self.params.valid_days)
+                    )
+                    return
 
     def notify_order(self, order):
         if order.status in [order.Submitted, order.Accepted]:
@@ -82,31 +104,39 @@ class LimitBuy(bt.Strategy):
                 self.last_buy_price.append(order.executed.price)
                 self.last_position_price.append(self.position.price)
             elif order.issell():
-                if order.executed.size == -100:
-                    self.last_buy_price.pop()
-                    self.last_position_price.pop()
-                    self.position.price = self.last_position_price[-1] if self.last_position_price else 0
-                elif order.executed.size < -100:
-                    self.last_buy_price.clear()
-                    self.last_position_price.clear()
-                self.log(f"卖单执行 @ {order.executed.price:.2f}, 当前成本 {self.position.price:.2f}, 持股数量 {self.position.size}")
+                if order.executed.size == -self.params.order_size:
+                    # 清除相应的网格记录
+                    if self.last_buy_price:
+                        self.last_buy_price.pop()
+                    if self.last_position_price:
+                        self.last_position_price.pop()
+                else:
+                    # 清除相应的买入记录
+                    if self.last_buy_price:
+                        self.last_buy_price.clear()
+                    if self.last_position_price:
+                        self.last_position_price.clear()
+                self.position.price = self.last_position_price[-1] if self.last_position_price else 0
+                self.log(
+                    f"卖单执行 @ {order.executed.price:.2f}, 当前成本 {self.position.price:.2f}, 持股数量 {self.position.size}"
+                )   
+            self.order = None  # 重置当前订单
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
             self.log("订单取消/保证金不足/被拒绝")
+            self.order = None  # 重置当前订单
+        
+        self.order = None
 
     def notify_trade(self, trade):
         if not trade.isclosed:
             return
         self.log(f"盈利 {trade.pnl:.2f}, 现金 {self.broker.cash:.2f}")
 
-    # def notify_cashvalue(self, cash, value):
-    #     print(f"Notification - Cash: {cash:.2f}, Portfolio Value: {value:.2f}")
-
     def log(self, txt, dt=None):
         """日志记录函数"""
         if self.params.printlog:
             dt = dt or self.datas[0].datetime.date(0)
             print(f"{dt.isoformat()} {txt}")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
