@@ -17,7 +17,7 @@ if __name__ == '__main__':
     
     stocks = ak.stock_info_sh_name_code()
     ranks = dict()
-    for symbol in stocks['证券代码'][:3000]:
+    for symbol in stocks['证券代码'][:1000]:
         cerebro = bt.Cerebro()  # 初始化回测系统
         cerebro.addstrategy(TailBuy, printlog=True)  # 将交易策略加载到回测系统中
         # 添加分析器
@@ -37,7 +37,7 @@ if __name__ == '__main__':
         else:
             end_date = datetime.strptime(args.end_date, date_format)
         stock_df = preprocess(symbol=symbol, adjust="qfq", start_date=start_date.strftime("%Y%m%d"), end_date=end_date.strftime("%Y%m%d"))
-        if stock_df is None:
+        if stock_df is None or stock_df.date.size <= 360 * 3:
             continue
         data = bt.feeds.PandasData(dataname=stock_df, fromdate=start_date, todate=end_date)  # 加载数据
         cerebro.adddata(data)  # 将数据传入回测系统

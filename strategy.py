@@ -16,7 +16,7 @@ class TailBuy(bt.Strategy):
     def next(self):
         # 开仓条件和买入条件
         open_condition = not self.position and self.data.low[0] <= self.data.open[0]*0.97
-        buy_condition = self.data.low[0] <= self.data.close[0] <= self.position.price * 0.95 and self.broker.cash >= self.data.close[0] * 100
+        buy_condition = self.data.low[0] <= self.position.price * 0.95 and self.broker.cash >= self.data.close[0] * 100
         if open_condition or buy_condition:
             # 尾盘买入：在当天收盘价买入一手
             self.buy(size=100)
